@@ -32,7 +32,7 @@
 //!     pub fn find_slice<T: NoUninit>(&self, value: &[T]) -> Option<&[T]>;
 //!     pub fn find_or_add_slice<T: NoUninit>(&self, value: &[T]) -> &[T];
 //!     pub fn add_slice<T: NoUninit>(&self, value: &[T]) -> &[T];
-//!     pub fn try_add_owned<T: NoUninit>(&self, value: Vec<T>) -> Result<&[T], Vec<T>> {
+//!     pub fn try_add_owned<T: NoUninit>(&self, value: Vec<T>) -> Result<&[T], Vec<T>>;
 //!
 //!     pub fn find_value<T: NoUninit>(&self, value: &T) -> Option<&T>;
 //!     pub fn find_or_add_value<T: NoUninit>(&self, value: &T) -> &T;
