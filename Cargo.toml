@@ -1,0 +1,30 @@
+[package]
+name = "interner"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["yoke", "parking_lot", "bytemuck"]
+yoke = ["dep:yoke"]
+parking_lot = ["dep:parking_lot"]
+bytemuck = ["dep:bytemuck"]
+
+[[bin]]
+name = "main"
+required-features = ["yoke"]
+
+[dependencies]
+memchr = "2.5.0"
+
+[dependencies.parking_lot]
+version = "0.12"
+optional = true
+
+[dependencies.yoke]
+version = "0.6"
+optional = true
+
+[dependencies.bytemuck]
+version = "1.11"
+optional = true
+features = ["extern_crate_std"]
