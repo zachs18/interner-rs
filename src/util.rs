@@ -48,5 +48,6 @@ pub unsafe fn is_aligned_to(align: usize, ptr: *const u8) -> bool {
 /// SAFETY: align must be a power of two
 pub unsafe fn align_offset(align: usize, ptr: *const u8) -> usize {
     // (align - ((ptr as usize) % align)) % align
-    (align - ((ptr as usize) & align)) & align
+    let mask = align - 1;
+    (align - ((ptr as usize) & mask)) & mask
 }
