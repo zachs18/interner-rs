@@ -1,14 +1,15 @@
 [package]
 name = "interner"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [features]
-default = ["yoke", "parking_lot", "bytemuck"]
+default = ["yoke", "parking_lot", "bytemuck", "builder"]
 yoke = ["dep:yoke", "dep:stable_deref_trait"]
 parking_lot = ["dep:parking_lot"]
 bytemuck = ["dep:bytemuck"]
 doc_cfg = []
+builder = ["bytemuck"]
 
 [[bin]]
 name = "main"

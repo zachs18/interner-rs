@@ -11,13 +11,15 @@
 //! impl sync::DataInterner {
 //!     pub /* #[cfg(feature = "parking_lot")] const */ fn new() -> Self;
 //!     pub fn into_unsync(self) -> unsync::DataInterner;
+//!     pub fn clear(&mut self);
 //! }
 //! impl unsync::DataInterner {
 //!     pub const fn new() -> Self;
 //!     pub fn into_sync(self) -> sync::DataInterner;
-//! }
-//! impl DataInterner {
 //!     pub fn clear(&mut self);
+//! }
+//! trait Interner {
+//!     pub fn try_clear(&mut self) -> Result<(), ()>;
 //!
 //!     pub fn find_bytes(&self, value: &[u8]) -> Option<&[u8]>;
 //!     pub fn find_or_add_bytes(&self, value: &[u8]) -> &[u8];
@@ -30,7 +32,7 @@
 //!     pub fn add_owned_string(&self, value: String) -> &str;
 //! }
 //! #[cfg(feature = "bytemuck")]
-//! impl DataInterner {
+//! trait Interner {
 //!     pub fn find_slice<T: NoUninit>(&self, value: &[T]) -> Option<&[T]>;
 //!     pub fn find_or_add_slice<T: NoUninit>(&self, value: &[T]) -> &[T];
 //!     pub fn add_slice<T: NoUninit>(&self, value: &[T]) -> &[T];
@@ -41,16 +43,11 @@
 //!     pub fn add_value<T: NoUninit>(&self, value: &T) -> &T;
 //! }
 //! #[cfg(feature = "yoke")]
-//! impl unsync::DataInterner {
-//!     // The above functions, but replace &self with self: &Rc<Self> and put the return value in a Yoke<_, Rc<Self>>
-//!     pub fn yoked_find_bytes(self: &Rc<Self>, value: &[u8]) -> Option<Yoke<&'static [u8], Rc<Self>>>;
-//!     pub fn yoked_...(self: &Rc<Self>, value: &...) -> Yoke<&'static ..., Rc<Self>>; // etc.
-//! }
-//! #[cfg(feature = "yoke")]
-//! impl sync::DataInterner {
-//!     // The above functions, but replace &self with self: &Arc<Self> and put the return value in a Yoke<_, Arc<Self>>
-//!     pub fn yoked_find_bytes(self: &Arc<Self>, value: &[u8]) -> Option<Yoke<&'static [u8], Rc<Self>>>;
-//!     pub fn yoked_...(self: &Arc<Self>, value: &...) -> Yoke<&'static ..., Arc<Self>>; // etc.
+//! trait RcInterner: Clone + StableDeref + Deref<Target: Interner> {
+//!     // This trait is implemented for (e.g.) Rc<unsync::DataInterner> and Arc<sync::DataInterner>.
+//!     // The above functions, but put the return value in a Yoke<_, Self>
+//!     pub fn yoked_find_bytes(&self, value: &[u8]) -> Option<Yoke<&'static [u8], Self>>;
+//!     pub fn yoked_...(&self, value: &...) -> Yoke<&'static ..., Self>; // etc.
 //! }
 //! ```
 //! ````
@@ -58,6 +55,8 @@
 pub(crate) mod inner;
 pub mod unsync;
 pub mod sync;
+#[cfg(feature = "builder")]
+pub mod builder;
 
 mod util;
 pub use util::Interner;
