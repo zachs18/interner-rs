@@ -1,11 +1,6 @@
 
-use crate::{inner::DataInternerInner, sync::DataInterner as SyncDataInterner};
+use crate::{inner::DataInternerInner, sync::DataInterner as SyncDataInterner, util::Interner};
 use std::cell::RefCell;
-
-#[cfg(feature = "yoke")]
-use std::rc::Rc;
-#[cfg(feature = "yoke")]
-use yoke::Yoke;
 
 #[cfg(feature = "bytemuck")]
 use std::{mem::size_of, ptr::NonNull};
@@ -46,7 +41,7 @@ impl DataInterner {
     /// 
     /// # Example
     /// ```rust
-    /// use interner::unsync::DataInterner;
+    /// use interner::{Interner, unsync::DataInterner};
     /// let interner: DataInterner;
     /// # interner = DataInterner::new();
     /// // ...
@@ -68,11 +63,11 @@ impl DataInterner {
 
     /// Clear all data held by this interner without deallocating.
     /// 
-    /// This function is safe because it takes a `&mut self`, which guarantees no other references exist to data owned by this interner.
+    /// This function is safe because it takes a &mut self, which guarantees no other references exist into data held by this interner.
     /// 
     /// # Example
     /// ```rust
-    /// use interner::unsync::DataInterner;
+    /// use interner::{Interner, unsync::DataInterner};
     /// let mut interner: DataInterner;
     /// # interner = DataInterner::new();
     /// // ...
@@ -90,6 +85,34 @@ impl DataInterner {
         // SAFETY: We hold a &mut self.
         unsafe { this.clear() }
     }
+}
+
+unsafe impl Interner for DataInterner {
+    /// Clear all data held by this interner without deallocating.
+    /// 
+    /// This function is safe because it takes a `&mut self`, which guarantees no other references exist to data owned by this interner.
+    /// 
+    /// # Example
+    /// ```rust
+    /// use interner::{Interner, unsync::DataInterner};
+    /// let mut interner: DataInterner;
+    /// # interner = DataInterner::new();
+    /// // ...
+    /// let name: &str = "Ferris";
+    /// let greeting1 = interner.add_str(&format!("Hello, {name}!"));
+    /// let greeting2 = interner.find_str("Hello, Ferris!");
+    /// assert_eq!(greeting1, "Hello, Ferris!");
+    /// assert_eq!(greeting2, Some("Hello, Ferris!"));
+    /// interner.try_clear().unwrap();
+    /// let greeting3 = interner.find_str("Hello, Ferris!");
+    /// assert_eq!(greeting3, None);
+    /// ```
+    fn try_clear(&mut self) -> Result<(), ()> {
+        let this = self.inner.get_mut();
+        // SAFETY: We hold a &mut self.
+        unsafe { this.clear() }
+        Ok(())
+    }
 
     /// Return a reference to data equal to `value` in this interner, if it exists.
     /// 
@@ -97,7 +120,7 @@ impl DataInterner {
     /// 
     /// # Example
     /// ```rust
-    /// use interner::unsync::DataInterner;
+    /// use interner::{Interner, unsync::DataInterner};
     /// let interner: DataInterner;
     /// # interner = DataInterner::new();
     /// // ...
@@ -109,7 +132,7 @@ impl DataInterner {
     /// assert_eq!(greeting2, Some(b"Hello, Mary" as &[u8]));
     /// assert_eq!(greeting3, None);
     /// ```
-    pub fn find_bytes(&self, value: &[u8]) -> Option<&[u8]> {
+    fn find_bytes(&self, value: &[u8]) -> Option<&[u8]> {
         if value.is_empty() {
             return Some(&[]);
         }
@@ -124,7 +147,7 @@ impl DataInterner {
     /// 
     /// # Example
     /// ```rust
-    /// use interner::unsync::DataInterner;
+    /// use interner::{Interner, unsync::DataInterner};
     /// let interner: DataInterner;
     /// # interner = DataInterner::new();
     /// // ...
@@ -136,7 +159,7 @@ impl DataInterner {
     /// assert_eq!(greeting2, b"Hello, Mary");
     /// assert_eq!(greeting3, b"Hello, Sue");
     /// ```
-    pub fn find_or_add_bytes(&self, value: &[u8]) -> &[u8] {
+    fn find_or_add_bytes(&self, value: &[u8]) -> &[u8] {
         if value.is_empty() {
             return &[];
         }
@@ -151,7 +174,7 @@ impl DataInterner {
     /// 
     /// # Example
     /// ```rust
-    /// use interner::unsync::DataInterner;
+    /// use interner::{Interner, unsync::DataInterner};
     /// let interner: DataInterner;
     /// # interner = DataInterner::new();
     /// // ...
@@ -159,7 +182,7 @@ impl DataInterner {
     /// let greeting = interner.add_bytes(format!("Hello, {name}!").as_bytes());
     /// assert_eq!(greeting, b"Hello, Ferris!");
     /// ```
-    pub fn add_bytes(&self, value: &[u8]) -> &[u8] {
+    fn add_bytes(&self, value: &[u8]) -> &[u8] {
         if value.is_empty() {
             return &[];
         }
@@ -174,7 +197,7 @@ impl DataInterner {
     /// 
     /// # Example
     /// ```rust
-    /// use interner::unsync::DataInterner;
+    /// use interner::{Interner, unsync::DataInterner};
     /// let interner: DataInterner;
     /// # interner = DataInterner::new();
     /// // ...
@@ -182,7 +205,7 @@ impl DataInterner {
     /// let greeting = interner.add_owned_bytes(format!("Hello, {name}!").into_bytes());
     /// assert_eq!(greeting, b"Hello, Ferris!");
     /// ```
-    pub fn add_owned_bytes(&self, value: Vec<u8>) -> &[u8] {
+    fn add_owned_bytes(&self, value: Vec<u8>) -> &[u8] {
         if value.capacity() == 0 {
             // Ignore empty buffers
             debug_assert!(value.is_empty());
@@ -194,105 +217,13 @@ impl DataInterner {
         }
 
     }
-
-    /// Return a reference to data equal to `value` in this interner, if it exists.
-    /// 
-    /// Empty slices will always succeed and may not actually be stored.
-    /// 
-    /// # Example
-    /// ```rust
-    /// use interner::unsync::DataInterner;
-    /// let interner: DataInterner;
-    /// # interner = DataInterner::new();
-    /// // ...
-    /// let name: &str = "Mary Sue";
-    /// let greeting1 = interner.add_str(&format!("Hello, {name}!"));
-    /// let greeting2 = interner.find_str("Hello, Mary");
-    /// let greeting3 = interner.find_str("Hello, Sue");
-    /// assert_eq!(greeting1, "Hello, Mary Sue!");
-    /// assert_eq!(greeting2, Some("Hello, Mary"));
-    /// assert_eq!(greeting3, None);
-    /// ```
-    pub fn find_str(&self, value: &str) -> Option<&str> {
-        let owned = self.find_bytes(value.as_bytes())?;
-        // SAFETY: owned == value.as_bytes() bytewise, and value is valid utf8
-        Some(unsafe { std::str::from_utf8_unchecked(owned) })
-    }
-
-    /// Return a reference to data equal to `value` in this interner, adding it if it does not yet exist.
-    /// 
-    /// Empty slices may not actually be stored.
-    /// 
-    /// # Example
-    /// ```rust
-    /// use interner::unsync::DataInterner;
-    /// let interner: DataInterner;
-    /// # interner = DataInterner::new();
-    /// // ...
-    /// let name: &str = "Mary Sue";
-    /// let greeting1 = interner.add_str(&format!("Hello, {name}!"));
-    /// let greeting2 = interner.find_or_add_str("Hello, Mary");
-    /// let greeting3 = interner.find_or_add_str("Hello, Sue");
-    /// assert_eq!(greeting1, "Hello, Mary Sue!");
-    /// assert_eq!(greeting2, "Hello, Mary");
-    /// assert_eq!(greeting3, "Hello, Sue");
-    /// ```
-    pub fn find_or_add_str(&self, value: &str) -> &str {
-        let owned = self.find_or_add_bytes(value.as_bytes());
-        // SAFETY: owned == value.as_bytes() bytewise, and value is valid utf8
-        unsafe { std::str::from_utf8_unchecked(owned) }
-    }
-
-    /// Insert data equal to `value` into this interner, returning a reference to it.
-    /// 
-    /// Empty slices may not actually be stored.
-    /// 
-    /// # Example
-    /// ```rust
-    /// use interner::unsync::DataInterner;
-    /// let interner: DataInterner;
-    /// # interner = DataInterner::new();
-    /// // ...
-    /// let name: &str = "Ferris";
-    /// let greeting = interner.add_str(&format!("Hello, {name}!"));
-    /// assert_eq!(greeting, "Hello, Ferris!");
-    /// ```
-    pub fn add_str(&self, value: &str) -> &str {
-        let owned = self.add_bytes(value.as_bytes());
-        // SAFETY: owned == value.as_bytes() bytewise, and value is valid utf8
-        unsafe { std::str::from_utf8_unchecked(owned) }
-    }
-
-    /// Insert `value` into this interner, returning a reference to it's data.
-    /// 
-    /// This will always succeed if `value.capacity() == 0`. Note that in this case a static slice may be returned.
-    /// 
-    /// # Example
-    /// ```rust
-    /// use interner::unsync::DataInterner;
-    /// let interner: DataInterner;
-    /// # interner = DataInterner::new();
-    /// // ...
-    /// let name: &str = "Ferris";
-    /// let greeting = interner.add_owned_string(format!("Hello, {name}!"));
-    /// assert_eq!(greeting, "Hello, Ferris!");
-    /// ```
-    pub fn add_owned_string(&self, value: String) -> &str {
-        let owned = self.add_owned_bytes(value.into_bytes());
-        // SAFETY: owned == value.as_bytes() bytewise, and value is valid utf8
-        unsafe { std::str::from_utf8_unchecked(owned) }
-    }
-}
-
-#[cfg(feature = "bytemuck")]
-impl DataInterner {
-    /// Return a reference to data bytesize-equal to `value` in this interner, if it exists and is sufficiently aligned.
+    /// Return a reference to data bytewise-equal to `value` in this interner, if it exists and is sufficiently aligned.
     /// 
     /// Empty slices and ZSTs will always succeed and may not actually be stored.
     /// 
     /// # Example
     /// ```rust
-    /// use interner::unsync::DataInterner;
+    /// use interner::{Interner, unsync::DataInterner};
     /// let interner: DataInterner;
     /// # interner = DataInterner::new();
     /// // ...
@@ -303,7 +234,8 @@ impl DataInterner {
     /// assert_eq!(value2.unwrap(), &[0x5555u16; 3]);
     /// assert_eq!(value3, None);
     /// ```
-    pub fn find_slice<T: NoUninit + 'static>(&self, value: &[T]) -> Option<&[T]> {
+    #[cfg(feature = "bytemuck")]
+    fn find_slice<T: NoUninit + 'static>(&self, value: &[T]) -> Option<&[T]> {
         if value.is_empty() {
             // Ignore empty slices
             Some(&[])
@@ -333,13 +265,13 @@ impl DataInterner {
         }
     }
 
-    /// Return a reference to data bytesize-equal to `value` in this interner, adding it if it does not yet exist.
+    /// Return a reference to data bytewise-equal to `value` in this interner, adding it if it does not yet exist.
     /// 
     /// Empty slices and ZSTs may not actually be stored.
     /// 
     /// # Example
     /// ```rust
-    /// use interner::unsync::DataInterner;
+    /// use interner::{Interner, unsync::DataInterner};
     /// let interner: DataInterner;
     /// # interner = DataInterner::new();
     /// // ...
@@ -350,7 +282,8 @@ impl DataInterner {
     /// assert_eq!(value2, &[0x5555u16; 3]);
     /// assert_eq!(value3, &[0xAAAAu16; 3]);
     /// ```
-    pub fn find_or_add_slice<T: NoUninit + 'static>(&self, value: &[T]) -> &[T] {
+    #[cfg(feature = "bytemuck")]
+    fn find_or_add_slice<T: NoUninit + 'static>(&self, value: &[T]) -> &[T] {
         if value.is_empty() {
             // Ignore empty slices
             &[]
@@ -380,20 +313,21 @@ impl DataInterner {
         }
     }
 
-    /// Return a reference to data bytesize-equal to `value` in this interner, adding it if it does not yet exist.
+    /// Return a reference to data bytewise-equal to `value` in this interner, adding it if it does not yet exist.
     /// 
     /// Empty slices and ZSTs may not actually be stored.
     /// 
     /// # Example
     /// ```rust
-    /// use interner::unsync::DataInterner;
+    /// use interner::{Interner, unsync::DataInterner};
     /// let interner: DataInterner;
     /// # interner = DataInterner::new();
     /// // ...
     /// let value = interner.add_slice(&[0x5555u16; 3]);
     /// assert_eq!(value, &[0x5555u16; 3]);
     /// ```
-    pub fn add_slice<T: NoUninit + 'static>(&self, value: &[T]) -> &[T] {
+    #[cfg(feature = "bytemuck")]
+    fn add_slice<T: NoUninit + 'static>(&self, value: &[T]) -> &[T] {
         if value.is_empty() {
             // Ignore empty slices
             &[]
@@ -431,7 +365,7 @@ impl DataInterner {
     /// 
     /// # Example
     /// ```rust
-    /// use interner::unsync::DataInterner;
+    /// use interner::{Interner, unsync::DataInterner};
     /// let interner: DataInterner;
     /// # interner = DataInterner::new();
     /// // ...
@@ -440,7 +374,8 @@ impl DataInterner {
     /// assert_eq!(value1, Ok(&[[1u8, 2, 3]; 8] as &[[u8; 3]]));
     /// assert_eq!(value2, Some(&[1u8, 2, 3, 1, 2, 3] as &[u8]));
     /// ```
-    pub fn try_add_owned<T: NoUninit + 'static>(&self, value: Vec<T>) -> Result<&[T], Vec<T>> {
+    #[cfg(feature = "bytemuck")]
+    fn try_add_owned<T: NoUninit + 'static>(&self, value: Vec<T>) -> Result<&[T], Vec<T>> {
         if value.capacity() == 0 {
             // Ignore empty buffers
             debug_assert!(value.is_empty());
@@ -470,13 +405,13 @@ impl DataInterner {
         }
     }
 
-    /// Return a reference to data bytesize-equal to `value` in this interner, if it exists and is sufficiently aligned.
+    /// Return a reference to data bytewise-equal to `value` in this interner, if it exists and is sufficiently aligned.
     /// 
     /// Empty slices and ZSTs will always succeed and may not actually be stored.
     /// 
     /// # Example
     /// ```rust
-    /// use interner::unsync::DataInterner;
+    /// use interner::{Interner, unsync::DataInterner};
     /// let interner: DataInterner;
     /// # interner = DataInterner::new();
     /// // ...
@@ -487,7 +422,8 @@ impl DataInterner {
     /// assert_eq!(value2, Some(&0x55555555u32));
     /// assert_eq!(value3, None);
     /// ```
-    pub fn find_value<T: NoUninit + 'static>(&self, value: &T) -> Option<&T> {
+    #[cfg(feature = "bytemuck")]
+    fn find_value<T: NoUninit + 'static>(&self, value: &T) -> Option<&T> {
         if size_of::<T>() == 0 {
             // Ignore ZSTs
             // SAFETY: T is a ZST
@@ -505,13 +441,13 @@ impl DataInterner {
         }
     }
 
-    /// Return a reference to data bytesize-equal to `value` in this interner, adding it if it does not exist or is not sufficiently aligned.
+    /// Return a reference to data bytewise-equal to `value` in this interner, adding it if it does not exist or is not sufficiently aligned.
     /// 
     /// ZSTs may not actually be stored.
     /// 
     /// # Example
     /// ```rust
-    /// use interner::unsync::DataInterner;
+    /// use interner::{Interner, unsync::DataInterner};
     /// let interner: DataInterner;
     /// # interner = DataInterner::new();
     /// // ...
@@ -522,7 +458,8 @@ impl DataInterner {
     /// assert_eq!(value2, &0x55555555u32);
     /// assert_eq!(value3, &0x5555u32);
     /// ```
-    pub fn find_or_add_value<T: NoUninit + 'static>(&self, value: &T) -> &T {
+    #[cfg(feature = "bytemuck")]
+    fn find_or_add_value<T: NoUninit + 'static>(&self, value: &T) -> &T {
         if size_of::<T>() == 0 {
             // Ignore ZSTs
             // SAFETY: T is a ZST
@@ -540,13 +477,13 @@ impl DataInterner {
         }
     }
 
-    /// Insert data bytesize-equal to `value` in this interner, returning a reference to it.
+    /// Insert data bytewise-equal to `value` in this interner, returning a reference to it.
     /// 
     /// ZSTs may not actually be stored.
     /// 
     /// # Example
     /// ```rust
-    /// use interner::unsync::DataInterner;
+    /// use interner::{Interner, unsync::DataInterner};
     /// let interner: DataInterner;
     /// # interner = DataInterner::new();
     /// // ...
@@ -554,7 +491,8 @@ impl DataInterner {
     /// let value = interner.find_value(&0x55555555u32);
     /// assert_eq!(value, Some(&0x55555555u32));
     /// ```
-    pub fn add_value<T: NoUninit + 'static>(&self, value: &T) -> &T {
+    #[cfg(feature = "bytemuck")]
+    fn add_value<T: NoUninit + 'static>(&self, value: &T) -> &T {
         if size_of::<T>() == 0 {
             // Ignore ZSTs
             // SAFETY: T is a ZST
@@ -573,206 +511,42 @@ impl DataInterner {
     }
 }
 
-#[cfg(feature = "yoke")]
-impl DataInterner {
-    /// Return a reference to data equal to `value` in this interner, if it exists.
-    /// 
-    /// Empty slices will always succeed and may not actually be stored.
-    pub fn yoked_find_bytes(self: &Rc<Self>, value: &[u8]) -> Option<Yoke<&'static [u8], Rc<Self>>> {
-        Yoke::try_attach_to_cart(self.clone(), |this| {
-            this.find_bytes(value).ok_or(())
-        }).ok()
-    }
-
-    /// Return a reference to data equal to `value` in this interner, adding it if it does not yet exist.
-    /// 
-    /// Empty slices may not actually be stored.
-    pub fn yoked_find_or_add_bytes(self: &Rc<Self>, value: &[u8]) -> Yoke<&'static [u8], Rc<Self>> {
-        Yoke::attach_to_cart(self.clone(), |this| {
-            this.find_or_add_bytes(value)
-        })
-    }
-
-    /// Insert data equal to `value` into this interner, returning a reference to it.
-    /// 
-    /// Empty slices may not actually be stored.
-    pub fn yoked_add_bytes(self: &Rc<Self>, value: &[u8]) -> Yoke<&'static [u8], Rc<Self>> {
-        Yoke::attach_to_cart(self.clone(), |this| {
-            this.add_bytes(value)
-        })
-    }
-
-    /// Insert `value` into this interner, returning a reference to it's data.
-    /// 
-    /// Empty slices may not actually be stored.
-    pub fn yoked_add_owned_bytes(self: &Rc<Self>, value: Vec<u8>) -> Yoke<&'static [u8], Rc<Self>> {
-        Yoke::attach_to_cart(self.clone(), |this| {
-            this.add_owned_bytes(value)
-        })
-    }
-
-
-    /// Return a reference to data equal to `value` in this interner, if it exists.
-    /// 
-    /// Empty slices will always succeed and may not actually be stored.
-    /// 
-    /// # Example
-    /// ```rust
-    /// use interner::unsync::DataInterner;
-    /// # use std::rc::Rc;
-    /// let interner: Rc<DataInterner>;
-    /// # interner = Rc::new(DataInterner::new());
-    /// // ...
-    /// let name: &str = "Mary Sue";
-    /// let greeting1 = interner.yoked_add_str(&format!("Hello, {name}!"));
-    /// let greeting2 = interner.yoked_find_str("Hello, Mary");
-    /// let greeting3 = interner.yoked_find_str("Hello, Sue");
-    /// drop(interner);
-    /// assert_eq!(*greeting1.get(), "Hello, Mary Sue!");
-    /// assert_eq!(*greeting2.unwrap().get(), "Hello, Mary");
-    /// assert!(matches!(greeting3, None));
-    /// ```
-    pub fn yoked_find_str(self: &Rc<Self>, value: &str) -> Option<Yoke<&'static str, Rc<Self>>> {
-        Yoke::try_attach_to_cart(self.clone(), |this| {
-            this.find_str(value).ok_or(())
-        }).ok()
-    }
-
-    /// Return a reference to data equal to `value` in this interner, adding it if it does not yet exist.
-    /// 
-    /// Empty slices may not actually be stored.
-    /// 
-    /// # Example
-    /// ```rust
-    /// use interner::unsync::DataInterner;
-    /// # use std::rc::Rc;
-    /// let interner: Rc<DataInterner>;
-    /// # interner = Rc::new(DataInterner::new());
-    /// // ...
-    /// let name: &str = "Mary Sue";
-    /// let greeting1 = interner.yoked_add_str(&format!("Hello, {name}!"));
-    /// let greeting2 = interner.yoked_find_or_add_str("Hello, Mary");
-    /// let greeting3 = interner.yoked_find_or_add_str("Hello, Sue");
-    /// drop(interner);
-    /// assert_eq!(*greeting1.get(), "Hello, Mary Sue!");
-    /// assert_eq!(*greeting2.get(), "Hello, Mary");
-    /// assert_eq!(*greeting3.get(), "Hello, Sue");
-    /// ```
-    pub fn yoked_find_or_add_str(self: &Rc<Self>, value: &str) -> Yoke<&'static str, Rc<Self>> {
-        Yoke::attach_to_cart(self.clone(), |this| {
-            this.find_or_add_str(value)
-        })
-    }
-
-    /// Insert data equal to `value` into this interner, returning a reference to it.
-    /// 
-    /// Empty slices may not actually be stored.
-    /// 
-    /// # Example
-    /// ```rust
-    /// use interner::unsync::DataInterner;
-    /// # use std::rc::Rc;
-    /// let interner: Rc<DataInterner>;
-    /// # interner = Rc::new(DataInterner::new());
-    /// // ...
-    /// let name: &str = "Ferris";
-    /// let greeting = interner.yoked_add_str(&format!("Hello, {name}!"));
-    /// drop(interner);
-    /// assert_eq!(*greeting.get(), "Hello, Ferris!");
-    /// ```
-    pub fn yoked_add_str(self: &Rc<Self>, value: &str) -> Yoke<&'static str, Rc<Self>> {
-        Yoke::attach_to_cart(self.clone(), |this| {
-            this.add_str(value)
-        })
-    }
-
-    /// Insert `value` into this interner, returning a reference to it's data.
-    /// 
-    /// Empty slices may not actually be stored.
-    /// 
-    /// # Example
-    /// ```rust
-    /// use interner::unsync::DataInterner;
-    /// # use std::rc::Rc;
-    /// let interner: Rc<DataInterner>;
-    /// # interner = Rc::new(DataInterner::new());
-    /// // ...
-    /// let name: &str = "Ferris";
-    /// let greeting = interner.yoked_add_owned_string(format!("Hello, {name}!"));
-    /// drop(interner);
-    /// assert_eq!(*greeting.get(), "Hello, Ferris!");
-    /// ```
-    pub fn yoked_add_owned_string(self: &Rc<Self>, value: String) -> Yoke<&'static str, Rc<Self>> {
-        Yoke::attach_to_cart(self.clone(), |this| {
-            this.add_owned_string(value)
-        })
-    }
+macro_rules! make_inherent_impls {
+    (impl $ty:ty {
+        $( $(#[cfg($($cfg:tt)*)])? $vis:vis fn $func:ident $([ $($generics:tt)* ])? (&self, value: $valty:ty) -> $retty:ty;)*
+    }) => {
+        impl $ty {
+            $(
+                $(#[cfg($($cfg)*)])?
+                #[doc = concat!("See [`Interner::", stringify!($func), "`]")]
+                $(#[cfg_attr(feature = "doc_cfg", doc(cfg($($cfg)*)))])?
+                $vis fn $func $(< $($generics)* >)? (&self, value: $valty) -> $retty {
+                    <Self as Interner>::$func(self, value)
+                }
+            )*
+        }
+    };
 }
 
-#[cfg(all(feature = "yoke", feature = "bytemuck"))]
-impl DataInterner {
-    /// Return a reference to data bytesize-equal to `value` in this interner, if it exists and is sufficiently aligned.
-    /// 
-    /// Empty slices and ZSTs will always succeed and may not actually be stored.
-    pub fn yoked_find_slice<T: NoUninit + 'static>(self: &Rc<Self>, value: &[T]) -> Option<Yoke<&'static [T], Rc<Self>>> {
-        Yoke::try_attach_to_cart(self.clone(), |this| {
-            this.find_slice(value).ok_or(())
-        }).ok()
-    }
+make_inherent_impls!{
+    impl DataInterner {
+        pub fn find_bytes(&self, value: &[u8]) -> Option<&[u8]>;
+        pub fn find_or_add_bytes(&self, value: &[u8]) -> &[u8];
+        pub fn add_bytes(&self, value: &[u8]) -> &[u8];
+        pub fn add_owned_bytes(&self, value: Vec<u8>) -> &[u8];
 
-    /// Return a reference to data bytesize-equal to `value` in this interner, adding it if it does exists or is not sufficiently aligned.
-    /// 
-    /// Empty slices and ZSTs may not actually be stored.
-    pub fn yoked_find_or_add_slice<T: NoUninit + 'static>(self: &Rc<Self>, value: &[T]) -> Yoke<&'static [T], Rc<Self>> {
-        Yoke::attach_to_cart(self.clone(), |this| {
-            this.find_or_add_slice(value)
-        })
-    }
+        pub fn find_str(&self, value: &str) -> Option<&str>;
+        pub fn find_or_add_str(&self, value: &str) -> &str;
+        pub fn add_str(&self, value: &str) -> &str;
+        pub fn add_owned_string(&self, value: String) -> &str;
 
-    /// Return a reference to data bytesize-equal to `value` in this interner, adding it if it does exists or is not sufficiently aligned.
-    /// 
-    /// Empty slices and ZSTs may not actually be stored.
-    pub fn yoked_add_slice<T: NoUninit + 'static>(self: &Rc<Self>, value: &[T]) -> Yoke<&'static [T], Rc<Self>> {
-        Yoke::attach_to_cart(self.clone(), |this| {
-            this.add_slice(value)
-        })
-    }
-
-    /// Return a reference to data bytesize-equal to `value` in this interner, adding it if it does exists or is not sufficiently aligned.
-    /// 
-    /// This will always succeed if `size_of::<T>() == 0` or `value.capacity() == 0`. Note that in this case a static slice may be returned.
-    /// 
-    /// Otherwise, this will fail if `align_of::<T>() != 1`.
-    pub fn yoked_try_add_owned<T: NoUninit + 'static>(self: &Rc<Self>, value: Vec<T>) -> Result<Yoke<&'static [T], Rc<Self>>, Vec<T>> {
-        Yoke::try_attach_to_cart(self.clone(), move |this| {
-            this.try_add_owned(value)
-        })
-    }
-
-    /// Return a reference to data bytesize-equal to `value` in this interner, if it exists and is sufficiently aligned.
-    /// 
-    /// Empty slices and ZSTs will always succeed and may not actually be stored.
-    pub fn yoked_find_value<T: NoUninit + 'static>(self: &Rc<Self>, value: &T) -> Option<Yoke<&'static T, Rc<Self>>> {
-        Yoke::try_attach_to_cart(self.clone(), move |this| {
-            this.find_value(value).ok_or(())
-        }).ok()
-    }
-
-    /// Return a reference to data bytesize-equal to `value` in this interner, adding it if it does not exist or is not sufficiently aligned.
-    /// 
-    /// ZSTs may not actually be stored.
-    pub fn yoked_find_or_add_value<T: NoUninit + 'static>(self: &Rc<Self>, value: &T) -> Yoke<&'static T, Rc<Self>> {
-        Yoke::attach_to_cart(self.clone(), move |this| {
-            this.find_or_add_value(value)
-        })
-    }
-
-    /// Return a reference to data bytesize-equal to `value` in this interner, adding it if it does not exist or is not sufficiently aligned.
-    /// 
-    /// ZSTs may not actually be stored.
-    pub fn yoked_add_value<T: NoUninit + 'static>(self: &Rc<Self>, value: &T) -> Yoke<&'static T, Rc<Self>> {
-        Yoke::attach_to_cart(self.clone(), move |this| {
-            this.add_value(value)
-        })
+        #[cfg(feature = "bytemuck")]
+        pub fn find_slice[T: NoUninit + 'static](&self, value: &[T]) -> Option<&[T]>;
+        #[cfg(feature = "bytemuck")]
+        pub fn find_or_add_slice[T: NoUninit + 'static](&self, value: &[T]) -> &[T];
+        #[cfg(feature = "bytemuck")]
+        pub fn add_slice[T: NoUninit + 'static](&self, value: &[T]) -> &[T];
+        #[cfg(feature = "bytemuck")]
+        pub fn try_add_owned[T: NoUninit + 'static](&self, value: Vec<T>) -> Result<&[T], Vec<T>>;
     }
 }

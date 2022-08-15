@@ -1,13 +1,14 @@
 [package]
 name = "interner"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 
 [features]
 default = ["yoke", "parking_lot", "bytemuck"]
-yoke = ["dep:yoke"]
+yoke = ["dep:yoke", "dep:stable_deref_trait"]
 parking_lot = ["dep:parking_lot"]
 bytemuck = ["dep:bytemuck"]
+doc_cfg = []
 
 [[bin]]
 name = "main"
@@ -28,3 +29,7 @@ optional = true
 version = "1.11"
 optional = true
 features = ["extern_crate_std"]
+
+[dependencies.stable_deref_trait]
+version = "1.2"
+optional = true

@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "doc_cfg", feature(doc_cfg))]
+
 #![deny(unsafe_op_in_unsafe_fn)]
 //! `interner` provides two data interner types, [`unsync::DataInterner`] and [`sync::DataInterner`].
 //! A `DataInterner` can store byte slices, string slices, and (with the `bytemuck` feature enabled) slices and values of [`bytemuck::NoUninit`] types.
@@ -58,3 +60,7 @@ pub mod unsync;
 pub mod sync;
 
 mod util;
+pub use util::Interner;
+
+#[cfg(feature = "yoke")]
+pub use util::RcInterner;

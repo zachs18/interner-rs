@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use interner::unsync::DataInterner;
+use interner::{unsync::DataInterner, Interner, RcInterner};
 use yoke::Yoke;
 
 fn main() {
