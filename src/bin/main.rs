@@ -6,7 +6,6 @@ use interner::{unsync::DataInterner, Interner, RcInterner};
 use yoke::Yoke;
 
 fn main() {
-
     let interner = Rc::new(DataInterner::new());
 
     let w = interner.yoked_add_str("Hello, world!");
@@ -22,8 +21,6 @@ fn main() {
     dbg!(y, y.as_ptr());
     dbg!(z.get(), z.get().as_ptr());
 
-    let borrowed: Yoke<&'static str, &str> = Yoke::attach_to_cart(x.get(), |string| {
-        string
-    });
+    let borrowed: Yoke<&'static str, &str> = Yoke::attach_to_cart(x.get(), |string| string);
     dbg!(borrowed.get(), borrowed.get().as_ptr());
 }

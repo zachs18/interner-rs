@@ -1,10 +1,10 @@
-use std::{ops, marker::PhantomData, mem, ptr};
+use std::{marker::PhantomData, mem, ops, ptr};
 
 use bytemuck::NoUninit;
 
-use crate::util::{Interner, align_offset};
+use crate::util::{align_offset, Interner};
 
-pub struct SliceBuilder<'a, T: NoUninit, I: Interner>  {
+pub struct SliceBuilder<'a, T: NoUninit, I: Interner> {
     // Capacity should always be size_of::<T>() * self.cap + (align_of::<T>() - 1)
     data: Vec<u8>,
     // Byte index into data
@@ -24,7 +24,14 @@ impl<'a, T: NoUninit, I: Interner> SliceBuilder<'a, T, I> {
         } else {
             0
         };
-        Self { data: vec![], start: 0, len: 0, cap, interner, _phantom: PhantomData }
+        Self {
+            data: vec![],
+            start: 0,
+            len: 0,
+            cap,
+            interner,
+            _phantom: PhantomData,
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -55,7 +62,9 @@ impl<'a, T: NoUninit, I: Interner> SliceBuilder<'a, T, I> {
             None | Some(0) => return, // Already sufficient
             Some(additional_cap) => additional_cap,
         };
-        let additional_raw_cap = additional_cap.checked_mul(mem::size_of::<T>()).expect("capacity overflow");
+        let additional_raw_cap = additional_cap
+            .checked_mul(mem::size_of::<T>())
+            .expect("capacity overflow");
         if mem::size_of::<T>() == 0 {
             // ZST already has max capacity
             panic!("capacity overflow");
@@ -70,13 +79,20 @@ impl<'a, T: NoUninit, I: Interner> SliceBuilder<'a, T, I> {
             return;
         } else if self.data.capacity() == 0 {
             // Initial allocation, allocate alignment padding
-            self.data.reserve(additional_raw_cap + mem::align_of::<T>() - 1);
+            self.data
+                .reserve(additional_raw_cap + mem::align_of::<T>() - 1);
             let ptr = self.data.as_mut_ptr();
             // SAFETY: align_of is a power of two
             let align_offset = unsafe { align_offset(mem::align_of::<T>(), ptr) };
             self.start = align_offset;
             self.cap = (self.data.capacity() - align_offset) / mem::size_of::<T>();
-            debug_assert!(self.cap >= requested_cap, "{} >= {} (raw_cap = {}, align_offset = {align_offset})", self.cap, requested_cap, self.data.capacity());
+            debug_assert!(
+                self.cap >= requested_cap,
+                "{} >= {} (raw_cap = {}, align_offset = {align_offset})",
+                self.cap,
+                requested_cap,
+                self.data.capacity()
+            );
             unsafe {
                 // Prevent having uninit bytes in the initial part of the vec
                 // SAFETY: ptr points to at least (additional_raw_cap + mem::align_of::<T>() - 1) bytes
@@ -106,7 +122,8 @@ impl<'a, T: NoUninit, I: Interner> SliceBuilder<'a, T, I> {
                     // and that > align_offset (since align_offset < mem::align_of::<T>())
                     ptr.write_bytes(0, new_align_offset);
 
-                    self.data.set_len(new_align_offset + self.len * mem::size_of::<T>());
+                    self.data
+                        .set_len(new_align_offset + self.len * mem::size_of::<T>());
                 }
 
                 self.start = new_align_offset;
@@ -137,7 +154,7 @@ impl<'a, T: NoUninit, I: Interner> SliceBuilder<'a, T, I> {
         let data = self.interner.add_owned_bytes(self.data);
         let data = &data[self.start..];
         unsafe {
-            // SAFETY: if self is not empty, &data[start] is aligned for T and is valid for reads for self.len * size_of::<T>() bytes 
+            // SAFETY: if self is not empty, &data[start] is aligned for T and is valid for reads for self.len * size_of::<T>() bytes
             let ptr = data.as_ptr().cast();
             std::slice::from_raw_parts(ptr, self.len)
         }
@@ -150,7 +167,7 @@ impl<'a, T: NoUninit, I: Interner> SliceBuilder<'a, T, I> {
         }
 
         let old_raw_len = self.start + self.len * mem::size_of::<T>();
-        let new_raw_len = old_raw_len +  mem::size_of::<T>();
+        let new_raw_len = old_raw_len + mem::size_of::<T>();
         // SAFETY: ptr is valid for size_of::<T>() bytes write and is aligned.
         unsafe {
             let ptr = self.data.as_mut_ptr().wrapping_add(old_raw_len);
@@ -159,21 +176,24 @@ impl<'a, T: NoUninit, I: Interner> SliceBuilder<'a, T, I> {
 
         self.len += 1;
         // SAFETY: we wrote to the added bytes
-        unsafe { self.data.set_len(new_raw_len); }
+        unsafe {
+            self.data.set_len(new_raw_len);
+        }
     }
 
     pub fn pop(&mut self) -> Option<T> {
-        self.len.checked_sub(1)
-            .map(|new_len| {
-                self.len = new_len;
-                let new_raw_len = self.start + self.len * mem::size_of::<T>();
-                let data = &self.data[new_raw_len..][..mem::size_of::<T>()];
-                // SAFETY: data is valid for size_of::<T>() bytes read and is aligned.
-                let value = unsafe { std::ptr::read(data.as_ptr() as *const T) };
-                // SAFETY: reducing length
-                unsafe { self.data.set_len(new_raw_len); }
-                value
-            })
+        self.len.checked_sub(1).map(|new_len| {
+            self.len = new_len;
+            let new_raw_len = self.start + self.len * mem::size_of::<T>();
+            let data = &self.data[new_raw_len..][..mem::size_of::<T>()];
+            // SAFETY: data is valid for size_of::<T>() bytes read and is aligned.
+            let value = unsafe { std::ptr::read(data.as_ptr() as *const T) };
+            // SAFETY: reducing length
+            unsafe {
+                self.data.set_len(new_raw_len);
+            }
+            value
+        })
     }
 }
 
@@ -184,15 +204,13 @@ impl<'a, T: NoUninit, I: Interner> ops::Deref for SliceBuilder<'a, T, I> {
         if mem::size_of::<T>() == 0 {
             let ptr = ptr::NonNull::dangling().as_ptr();
             // SAFETY: ZSTs can dangle
-            unsafe {
-                std::slice::from_raw_parts(ptr, self.len)
-            }
+            unsafe { std::slice::from_raw_parts(ptr, self.len) }
         } else if self.len == 0 {
             &[]
         } else {
             let data = &self.data[self.start..];
             unsafe {
-                // SAFETY: if self is not empty, &data[start] is aligned for T and is valid for reads for self.len * size_of::<T>() bytes 
+                // SAFETY: if self is not empty, &data[start] is aligned for T and is valid for reads for self.len * size_of::<T>() bytes
                 let ptr = data.as_ptr().cast();
                 std::slice::from_raw_parts(ptr, self.len)
             }
@@ -200,21 +218,18 @@ impl<'a, T: NoUninit, I: Interner> ops::Deref for SliceBuilder<'a, T, I> {
     }
 }
 
-
 impl<'a, T: NoUninit, I: Interner> ops::DerefMut for SliceBuilder<'a, T, I> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         if mem::size_of::<T>() == 0 {
             let ptr = ptr::NonNull::dangling().as_ptr();
             // SAFETY: ZSTs can dangle
-            unsafe {
-                std::slice::from_raw_parts_mut(ptr, self.len)
-            }
+            unsafe { std::slice::from_raw_parts_mut(ptr, self.len) }
         } else if self.len == 0 {
             &mut []
         } else {
             let data = &mut self.data[self.start..];
             unsafe {
-                // SAFETY: &data[start] is aligned for T and is valid for reads for self.len * size_of::<T>() bytes 
+                // SAFETY: &data[start] is aligned for T and is valid for reads for self.len * size_of::<T>() bytes
                 let ptr = data.as_mut_ptr().cast();
                 std::slice::from_raw_parts_mut(ptr, self.len)
             }
@@ -242,6 +257,18 @@ mod tests {
         slice_builder.push(0);
 
         let slice = slice_builder.finalize();
-        assert_eq!(slice, [0, 0x5555555555555555, 0xAAAAAAAAAAAAAAAA, 0, 0, 0x5555555555555555, 0xAAAAAAAAAAAAAAAA, 0]);
+        assert_eq!(
+            slice,
+            [
+                0,
+                0x5555555555555555,
+                0xAAAAAAAAAAAAAAAA,
+                0,
+                0,
+                0x5555555555555555,
+                0xAAAAAAAAAAAAAAAA,
+                0
+            ]
+        );
     }
 }

@@ -1,5 +1,4 @@
-use crate::util::{is_aligned_to, align_offset};
-
+use crate::util::{align_offset, is_aligned_to};
 
 type FullBuf = Box<[u8]>;
 type NonFullBuf = Vec<u8>;
@@ -15,7 +14,10 @@ pub(crate) struct DataInternerInner {
 
 impl DataInternerInner {
     pub(crate) const fn new() -> Self {
-        Self { full_buffers: Vec::new(), nonfull_buffers: Vec::new() }
+        Self {
+            full_buffers: Vec::new(),
+            nonfull_buffers: Vec::new(),
+        }
     }
 
     // SAFETY: Caller must ensure that no references to any buffers exist. E.g. by owning or holding a &mut to the outer interner.
@@ -76,15 +78,20 @@ impl DataInternerInner {
         }
     }
 
-
     // SAFETY: Caller must ensure that buffers are not invalidated within the 'a lifetime, and that align is a power of two.
-    pub(crate) unsafe fn find_bytes_with_align<'a>(&self, value: &[u8], align: usize) -> Option<&'a [u8]> {
+    pub(crate) unsafe fn find_bytes_with_align<'a>(
+        &self,
+        value: &[u8],
+        align: usize,
+    ) -> Option<&'a [u8]> {
         // TODO: Maybe use a memchr::memmem::Finder?
         for buf in &*self.full_buffers {
             if let Some(idx) = memchr::memmem::find(buf, value) {
                 let owned: &[u8] = &buf[idx..][..value.len()];
                 // SAFETY: align is a power of two.
-                if unsafe { !is_aligned_to(align, owned.as_ptr()) } { continue; }
+                if unsafe { !is_aligned_to(align, owned.as_ptr()) } {
+                    continue;
+                }
                 // SAFETY: The string will never be reallocated
                 let owned: &'static [u8] = unsafe { std::mem::transmute(owned) };
                 return Some(owned);
@@ -94,7 +101,9 @@ impl DataInternerInner {
             if let Some(idx) = memchr::memmem::find(buf, value) {
                 let owned: &[u8] = &buf[idx..][..value.len()];
                 // SAFETY: align is a power of two.
-                if unsafe { !is_aligned_to(align, owned.as_ptr()) } { continue; }
+                if unsafe { !is_aligned_to(align, owned.as_ptr()) } {
+                    continue;
+                }
                 // SAFETY: The data buffer will never be reallocated
                 let owned: &'static [u8] = unsafe { std::mem::transmute(owned) };
                 return Some(owned);
@@ -104,11 +113,17 @@ impl DataInternerInner {
     }
 
     // SAFETY: Caller must ensure that buffers are not invalidated within the 'a lifetime, and that align is a power of two.
-    pub(crate) unsafe fn add_bytes_with_align<'a>(&mut self, value: &[u8], align: usize) -> &'a [u8] {
+    pub(crate) unsafe fn add_bytes_with_align<'a>(
+        &mut self,
+        value: &[u8],
+        align: usize,
+    ) -> &'a [u8] {
         for (i, nonfull_buffer) in self.nonfull_buffers.iter_mut().enumerate() {
             // Append to an existing nonfull buffer
             let remaining_capacity = nonfull_buffer.capacity() - nonfull_buffer.len();
-            if remaining_capacity < value.len() { continue; }
+            if remaining_capacity < value.len() {
+                continue;
+            }
 
             let old_len = nonfull_buffer.len();
 
@@ -117,8 +132,12 @@ impl DataInternerInner {
 
             // SAFETY: align is a power of 2.
             let offset = unsafe { align_offset(align, ptr) };
-            if offset > remaining_capacity { continue; }
-            if remaining_capacity - offset < value.len() { continue; }
+            if offset > remaining_capacity {
+                continue;
+            }
+            if remaining_capacity - offset < value.len() {
+                continue;
+            }
 
             let fill_len = offset;
             let fill_ptr = ptr;
@@ -177,7 +196,10 @@ impl DataInternerInner {
             // SAFETY: align is a power of 2.
             let offset = unsafe { align_offset(align, ptr) };
             debug_assert!(offset <= capacity, "we just allocated it with enough space");
-            debug_assert!(capacity - offset >= value.len(), "we just allocated it with enough space");
+            debug_assert!(
+                capacity - offset >= value.len(),
+                "we just allocated it with enough space"
+            );
 
             let fill_len = offset;
             let fill_ptr = ptr;
@@ -223,7 +245,11 @@ impl DataInternerInner {
     // TODO: Future: Maybe check for prefixes at the end of nonfull buffers.
     // SAFETY: Caller must ensure that buffers are not invalidated within the 'a lifetime, and align is a power of 2.
     #[cfg_attr(not(feature = "bytemuck"), allow(dead_code))]
-    pub(crate) unsafe fn find_or_add_bytes_with_align<'a>(&mut self, value: &[u8], align: usize) -> &'a [u8] {
+    pub(crate) unsafe fn find_or_add_bytes_with_align<'a>(
+        &mut self,
+        value: &[u8],
+        align: usize,
+    ) -> &'a [u8] {
         // SAFETY: Same safety requirements as this function
         match unsafe { self.find_bytes_with_align(value, align) } {
             Some(owned) => owned,

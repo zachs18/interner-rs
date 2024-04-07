@@ -1,24 +1,23 @@
-
 use crate::{inner::DataInternerInner, sync::DataInterner as SyncDataInterner, util::Interner};
 use std::cell::RefCell;
 
 #[cfg(feature = "bytemuck")]
-use std::{mem::size_of, ptr::NonNull};
+use bytemuck::{cast_slice, try_cast_vec, NoUninit};
 #[cfg(feature = "bytemuck")]
-use bytemuck::{NoUninit, cast_slice, try_cast_vec};
+use std::{mem::size_of, ptr::NonNull};
 
 /// A data interner.
-/// 
+///
 /// You can hold a reference to interned data as long as you hold a reference to the interner.
-/// 
+///
 /// With the `yoke` feature enabled, you can additionally acquire a [`Yoke<T, Rc<DataInterner>>`](yoke::Yoke), where `T` is the interned data, which allows holding a reference to the interned data along with a ref-counted interner.
-/// 
+///
 /// By default, byte slices (`[u8]`) and string slices ([`str`]) can be interned.
-/// 
+///
 /// With the `bytemuck` feature enabled, you can additionally intern slices of any type that implmements [`NoUninit`](bytemuck::NoUninit) (i.e. types that are [`Copy`] and `'static` and contain no padding).
-/// 
+///
 /// Byte vectors ([`Vec<u8>`]) and strings ([`String`]) can be inserted into the interner, which may use their excess capacity for additional interned data.
-/// 
+///
 /// With the `bytemuck` feature enabled, you can additionally insert vectors of any type that implmements [`NoUninit`](bytemuck::NoUninit) such that `align_of::<T>() == 1`. See the documentation for [`try_add_owned`](DataInterner::try_add_owned) for more information.
 #[derive(Default)]
 pub struct DataInterner {
@@ -27,7 +26,7 @@ pub struct DataInterner {
 
 impl DataInterner {
     /// Constructs a new, empty `DataInterner`.
-    /// 
+    ///
     /// The interner will not allocate until something is added to it.
     pub const fn new() -> Self {
         Self {
@@ -36,9 +35,9 @@ impl DataInterner {
     }
 
     /// Convert this to a thread-safe interner without deallocating or removing data.
-    /// 
+    ///
     /// This function will still invalidate all references, since it takes `self` by value.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use interner::{Interner, unsync::DataInterner};
@@ -62,9 +61,9 @@ impl DataInterner {
     }
 
     /// Clear all data held by this interner without deallocating.
-    /// 
+    ///
     /// This function is safe because it takes a &mut self, which guarantees no other references exist into data held by this interner.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use interner::{Interner, unsync::DataInterner};
@@ -89,9 +88,9 @@ impl DataInterner {
 
 unsafe impl Interner for DataInterner {
     /// Clear all data held by this interner without deallocating.
-    /// 
+    ///
     /// This function is safe because it takes a `&mut self`, which guarantees no other references exist to data owned by this interner.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use interner::{Interner, unsync::DataInterner};
@@ -115,9 +114,9 @@ unsafe impl Interner for DataInterner {
     }
 
     /// Return a reference to data equal to `value` in this interner, if it exists.
-    /// 
+    ///
     /// Empty slices will always succeed and may not actually be stored.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use interner::{Interner, unsync::DataInterner};
@@ -142,9 +141,9 @@ unsafe impl Interner for DataInterner {
     }
 
     /// Return a reference to data equal to `value` in this interner, adding it if it does not yet exist.
-    /// 
+    ///
     /// Empty slices may not actually be stored.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use interner::{Interner, unsync::DataInterner};
@@ -169,9 +168,9 @@ unsafe impl Interner for DataInterner {
     }
 
     /// Insert data equal to `value` into this interner, returning a reference to it.
-    /// 
+    ///
     /// Empty slices may not actually be stored.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use interner::{Interner, unsync::DataInterner};
@@ -192,9 +191,9 @@ unsafe impl Interner for DataInterner {
     }
 
     /// Insert `value` into this interner, returning a reference to it's data.
-    /// 
+    ///
     /// This will always succeed if `value.capacity() == 0`. Note that in this case a static slice may be returned.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use interner::{Interner, unsync::DataInterner};
@@ -215,12 +214,11 @@ unsafe impl Interner for DataInterner {
             // SAFETY: self is borrowed immutably for the '_ lifetime, so no buffer will be invalidated in that lifetime.
             unsafe { this.add_owned_bytes(value) }
         }
-
     }
     /// Return a reference to data bytewise-equal to `value` in this interner, if it exists and is sufficiently aligned.
-    /// 
+    ///
     /// Empty slices and ZSTs will always succeed and may not actually be stored.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use interner::{Interner, unsync::DataInterner};
@@ -266,9 +264,9 @@ unsafe impl Interner for DataInterner {
     }
 
     /// Return a reference to data bytewise-equal to `value` in this interner, adding it if it does not yet exist.
-    /// 
+    ///
     /// Empty slices and ZSTs may not actually be stored.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use interner::{Interner, unsync::DataInterner};
@@ -314,9 +312,9 @@ unsafe impl Interner for DataInterner {
     }
 
     /// Return a reference to data bytewise-equal to `value` in this interner, adding it if it does not yet exist.
-    /// 
+    ///
     /// Empty slices and ZSTs may not actually be stored.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use interner::{Interner, unsync::DataInterner};
@@ -358,11 +356,11 @@ unsafe impl Interner for DataInterner {
     }
 
     /// Insert `value` into this interner, returning a reference to it's data.
-    /// 
+    ///
     /// This will always succeed if `size_of::<T>() == 0` or `value.capacity() == 0`. Note that in this case a static slice may be returned.
-    /// 
+    ///
     /// Otherwise, this will fail if `align_of::<T>() != 1`.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use interner::{Interner, unsync::DataInterner};
@@ -406,9 +404,9 @@ unsafe impl Interner for DataInterner {
     }
 
     /// Return a reference to data bytewise-equal to `value` in this interner, if it exists and is sufficiently aligned.
-    /// 
+    ///
     /// Empty slices and ZSTs will always succeed and may not actually be stored.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use interner::{Interner, unsync::DataInterner};
@@ -434,7 +432,7 @@ unsafe impl Interner for DataInterner {
         } else {
             let slice = unsafe {
                 let ptr = value as *const T;
-                // SAFETY: ptr is valid for size_of::<T>() bytes for reads 
+                // SAFETY: ptr is valid for size_of::<T>() bytes for reads
                 std::slice::from_raw_parts(ptr, 1)
             };
             Some(&self.find_slice(slice)?[0])
@@ -442,9 +440,9 @@ unsafe impl Interner for DataInterner {
     }
 
     /// Return a reference to data bytewise-equal to `value` in this interner, adding it if it does not exist or is not sufficiently aligned.
-    /// 
+    ///
     /// ZSTs may not actually be stored.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use interner::{Interner, unsync::DataInterner};
@@ -470,7 +468,7 @@ unsafe impl Interner for DataInterner {
         } else {
             let slice = unsafe {
                 let ptr = value as *const T;
-                // SAFETY: ptr is valid for size_of::<T>() bytes for reads 
+                // SAFETY: ptr is valid for size_of::<T>() bytes for reads
                 std::slice::from_raw_parts(ptr, 1)
             };
             &self.find_or_add_slice(slice)[0]
@@ -478,9 +476,9 @@ unsafe impl Interner for DataInterner {
     }
 
     /// Insert data bytewise-equal to `value` in this interner, returning a reference to it.
-    /// 
+    ///
     /// ZSTs may not actually be stored.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use interner::{Interner, unsync::DataInterner};
@@ -503,7 +501,7 @@ unsafe impl Interner for DataInterner {
         } else {
             let slice = unsafe {
                 let ptr = value as *const T;
-                // SAFETY: ptr is valid for size_of::<T>() bytes for reads 
+                // SAFETY: ptr is valid for size_of::<T>() bytes for reads
                 std::slice::from_raw_parts(ptr, 1)
             };
             &self.add_slice(slice)[0]
@@ -528,7 +526,7 @@ macro_rules! make_inherent_impls {
     };
 }
 
-make_inherent_impls!{
+make_inherent_impls! {
     impl DataInterner {
         pub fn find_bytes(&self, value: &[u8]) -> Option<&[u8]>;
         pub fn find_or_add_bytes(&self, value: &[u8]) -> &[u8];

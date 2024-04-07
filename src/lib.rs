@@ -1,11 +1,10 @@
 #![cfg_attr(feature = "doc_cfg", feature(doc_cfg))]
-
 #![deny(unsafe_op_in_unsafe_fn)]
 //! `interner` provides two data interner types, [`unsync::DataInterner`] and [`sync::DataInterner`].
 //! A `DataInterner` can store byte slices, string slices, and (with the `bytemuck` feature enabled) slices and values of [`bytemuck::NoUninit`] types.
-//! 
+//!
 //! The core API is essentially this:
-//! 
+//!
 #![cfg_attr(doctest, doc = " ````no_test")] // see https://github.com/rust-lang/rust/issues/63193#issuecomment-1053702113
 //! ```ignore
 //! impl sync::DataInterner {
@@ -52,11 +51,11 @@
 //! ```
 //! ````
 
-pub(crate) mod inner;
-pub mod unsync;
-pub mod sync;
 #[cfg(feature = "builder")]
 pub mod builder;
+pub(crate) mod inner;
+pub mod sync;
+pub mod unsync;
 
 mod util;
 pub use util::Interner;
